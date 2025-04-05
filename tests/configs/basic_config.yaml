@@ -1,0 +1,32 @@
+experiment: "basic_experiment"
+num_trials: 1
+max_epochs: 5
+experiment_tags:
+  environment: "test"
+  framework: "pytorch_lightning"
+run_name: "basic_run"
+artifact_path: "./artifacts"
+max_time: 10  # minutes
+include_date_in_run_name: false
+
+model:
+  model:
+    type: "linear"
+    input_size: 10
+    output_size: 1
+
+data_module:
+  data_module:
+    batch_size: 32
+    num_workers: 0
+    train_data_path: "./data/train"
+    val_data_path: "./data/val"
+    test_data_path: "./data/test"
+
+trainer:
+  loss_function: "mse"
+  accuracy_tolerance: 0.05
+
+optimizer:
+  optimizer_algorithm: "adam"
+  lr: 0.001 
