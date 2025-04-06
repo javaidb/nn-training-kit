@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="nn-training-kit",
-    version="0.1.3",
+    version="1.0.0",
     packages=find_packages(include=["nn_training_kit", "nn_training_kit.*"]),
     install_requires=[
         "torch",
