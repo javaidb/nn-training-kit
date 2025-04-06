@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="nn-training-kit",
+    name="nn_training_kit",
     version="1.0.0",
     packages=find_packages(include=["nn_training_kit", "nn_training_kit.*"]),
     install_requires=[
