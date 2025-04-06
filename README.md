@@ -28,7 +28,7 @@ The Neural Network Training Kit provides a structured approach to training neura
 
 ```bash
 # Install from source
-git clone https://github.com/yourusername/nn-training-kit.git
+git clone https://github.com/javaidb/nn-training-kit.git
 cd nn-training-kit
 pip install -e ".[dev]"
 ```
