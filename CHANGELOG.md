@@ -1,5 +1,7 @@
 # Changelog
 
+## [1.0.0] - 2024-04-05
+
 ### Added
 - Reorganized testing infrastructure
 - Added sample data generation for testing
@@ -10,8 +12,6 @@
 ### Changed
 - Excluded tests directory from installed package
 - Updated test files to use the new configuration structure
-
-## [1.0.0] - 2024-04-05
 
 ### Added
 - Initial stable release
