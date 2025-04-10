@@ -1,0 +1,26 @@
+version: '3'
+
+services:
+  trainer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: trainer
+    restart: "no"
+    volumes:
+      - .:/app/examples
+      - ../nn_training_kit:/app/nn_training_kit
+    environment:
+      - PYTHONPATH=/app
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - NVIDIA_VISIBLE_DEVICES=all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    tty: true
+    working_dir: /app
+    command: python /app/examples/train_regression.py
