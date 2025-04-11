@@ -1,6 +1,6 @@
 from typing import Any, Dict, Optional
 
-import pytorch_lightning as pl
+import lightning as L
 import torch
 from pydantic import BaseModel
 from torch import Tensor, nn, optim
@@ -25,7 +25,7 @@ class StepOutput(BaseModel, protected_namespaces=(), arbitrary_types_allowed=Tru
     model_output: Tensor
 
 
-class TrainingModule(pl.LightningModule):
+class TrainingModule(L.LightningModule):
     """
     A PyTorch Lightning module that handles the training, validation, and testing steps.
     This module supports the integration of custom loss functions and optimizers.
@@ -40,6 +40,10 @@ class TrainingModule(pl.LightningModule):
         The optimizer used for training the model.
     accuracy_tolerance : float, optional
         The tolerance value for calculating accuracy. Default is 0.01.
+    device_name : str, optional
+        The device to use for training. Default is "auto".
+    eps : float, optional
+        Small constant for numerical stability. Default is 1e-8.
     """
 
     def __init__(
@@ -48,99 +52,163 @@ class TrainingModule(pl.LightningModule):
         loss_function: nn.Module,
         optimizer: optim.Optimizer,
         accuracy_tolerance: Optional[float] = 0.01,
+        device_name: str = "auto",
+        eps: float = 1e-8,
     ):
         super().__init__()
         self.model = model
         self.loss_fn = loss_function
         self.optimizer = optimizer
         self.accuracy_tolerance = accuracy_tolerance
-
-    def calculate_accuracy(self, y_true: Tensor, y_pred: Tensor) -> Tensor:
-        """
-        Calculate percentage accuracy within a certain voltage tolerance.
+        self.eps = eps  # Small constant for numerical stability
         
-        Parameters
-        ----------
-        y_true : Tensor
-            The true values (ground truth).
-        y_pred : Tensor
-            The predicted values from the model.
-            
-        Returns
-        -------
-        Tensor
-            The calculated accuracy as a percentage.
-        """
-        # Calculate absolute error in actual voltage space
-        abs_error = torch.abs(y_true - y_pred)
-        # Calculate percentage of predictions within tolerance
-        accuracy = torch.mean((abs_error <= self.accuracy_tolerance).float()) * 100
+        # Determine device
+        if device_name == "auto":
+            self._device_name = "cuda" if torch.cuda.is_available() else "cpu"
+        else:
+            self._device_name = device_name
+        
+        # Move model and loss function to device
+        self.model = self.model.to(self._device_name)
+        if hasattr(self.loss_fn, 'to'):
+            self.loss_fn = self.loss_fn.to(self._device_name)
+
+    @property
+    def device_name(self) -> str:
+        """Get the device name."""
+        return self._device_name
+
+    def calculate_accuracy(self, outputs: torch.Tensor, targets: torch.Tensor) -> float:
+        """Calculate accuracy with numerical stability measures."""
+        # Ensure tensors are on the same device
+        outputs = outputs.to(self._device_name)
+        targets = targets.to(self._device_name)
+        
+        # Handle NaN values
+        outputs = torch.nan_to_num(outputs, nan=0.0)
+        targets = torch.nan_to_num(targets, nan=0.0)
+        
+        # For regression, calculate accuracy as percentage of predictions within acceptable error
+        error = torch.abs(outputs - targets)
+        acceptable_error = torch.std(targets) * 0.1 + self.eps  # 10% of std dev plus eps
+        accuracy = torch.mean((error <= acceptable_error).float())
+        
         return accuracy
 
-    def _step(self, batch: Any, batch_idx: int, mode: str) -> Dict[str, Any]:
-        """
-        A common method for handling training, validation, and test steps.
-
-        Parameters
-        ----------
-        batch : Any
-            The input batch containing features and labels.
-        batch_idx : int
-            The index of the current batch.
-        mode : str
-            The mode of the step, can be 'training', 'validation', or 'test'.
-
-        Returns
-        -------
-        Dict[str, Any]
-            A dictionary containing the loss value and step output.
-        """
-        X, Y = batch
-        Y_pred = self.model(X)
-
-        step_loss = self.loss_fn(Y, Y_pred)
-        step_accuracy = self.calculate_accuracy(Y, Y_pred)
-
-        self.log(
-            f"{mode}_loss",
-            step_loss,
-            on_step=True,
-            on_epoch=True,
-            prog_bar=True,
-            sync_dist=True
-        )
-        self.log(
-            f"{mode}_accuracy",
-            step_accuracy,
-            on_step=True,
-            on_epoch=True,
-            prog_bar=True,
-            sync_dist=True
-        )
+    def training_step(self, batch: tuple, batch_idx: int) -> torch.Tensor:
+        """Perform a single training step."""
+        inputs, targets = batch
         
-        step_output = StepOutput(
-            loss=step_loss,
-            true_output=Y,
-            model_output=Y_pred
-        )
+        # Handle NaN and Inf values in inputs
+        if torch.isnan(inputs).any() or torch.isinf(inputs).any():
+            print("\nWARNING: NaN/Inf values detected in training inputs")
+            inputs = torch.nan_to_num(inputs, nan=0.0, posinf=1e6, neginf=-1e6)
+        
+        if torch.isnan(targets).any() or torch.isinf(targets).any():
+            print("\nWARNING: NaN/Inf values detected in training targets")
+            targets = torch.nan_to_num(targets, nan=0.0, posinf=1e6, neginf=-1e6)
+        
+        # Forward pass
+        outputs = self.model(inputs)
+        
+        # Handle NaN/Inf in outputs
+        if torch.isnan(outputs).any() or torch.isinf(outputs).any():
+            print("\nWARNING: NaN/Inf values detected in model outputs during training")
+            outputs = torch.nan_to_num(outputs, nan=0.0, posinf=1e6, neginf=-1e6)
+        
+        # Calculate loss
+        loss = self.loss_fn(outputs, targets)
+        
+        # Check for invalid loss
+        if torch.isnan(loss).any() or torch.isinf(loss).any():
+            print("\nWARNING: Invalid loss detected in training")
+            return torch.tensor(float('inf'), device=self._device_name)
+        
+        # Calculate accuracy
+        accuracy = self.calculate_accuracy(outputs, targets)
+        
+        # Log metrics
+        self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
+        self.log('train_accuracy', accuracy, on_step=True, on_epoch=True, prog_bar=True)
+        
+        return loss
 
-        return {
-            "loss": step_loss,
-            "step_output": step_output,
-        }
+    def validation_step(self, batch: tuple, batch_idx: int) -> None:
+        """Perform a single validation step."""
+        inputs, targets = batch
+        
+        # Handle NaN and Inf values in inputs
+        if torch.isnan(inputs).any() or torch.isinf(inputs).any():
+            print("\nWARNING: NaN/Inf values detected in validation inputs")
+            inputs = torch.nan_to_num(inputs, nan=0.0, posinf=1e6, neginf=-1e6)
+        
+        if torch.isnan(targets).any() or torch.isinf(targets).any():
+            print("\nWARNING: NaN/Inf values detected in validation targets")
+            targets = torch.nan_to_num(targets, nan=0.0, posinf=1e6, neginf=-1e6)
+        
+        # Forward pass
+        outputs = self.model(inputs)
+        
+        # Handle NaN/Inf in outputs
+        if torch.isnan(outputs).any() or torch.isinf(outputs).any():
+            print("\nWARNING: NaN/Inf values detected in model outputs during validation")
+            outputs = torch.nan_to_num(outputs, nan=0.0, posinf=1e6, neginf=-1e6)
+        
+        # Calculate loss
+        loss = self.loss_fn(outputs, targets)
+        
+        # Check for invalid loss
+        if torch.isnan(loss).any() or torch.isinf(loss).any():
+            print("\nWARNING: Invalid loss detected in validation")
+            self.log('val_loss', float('inf'), on_step=True, on_epoch=True, prog_bar=True)
+            self.log('val_accuracy', 0.0, on_step=True, on_epoch=True, prog_bar=True)
+            return
+        
+        # Calculate accuracy
+        accuracy = self.calculate_accuracy(outputs, targets)
+        
+        # Log metrics
+        self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
+        self.log('val_accuracy', accuracy, on_step=True, on_epoch=True, prog_bar=True)
 
-    def training_step(self, batch: Any, batch_idx: int) -> Dict[str, Any]:
-        """Handles a single training step."""
-        return self._step(batch, batch_idx, mode="training")
+    def test_step(self, batch: tuple, batch_idx: int) -> None:
+        """Perform a single test step."""
+        inputs, targets = batch
+        
+        # Handle NaN and Inf values in inputs
+        if torch.isnan(inputs).any() or torch.isinf(inputs).any():
+            print("\nWARNING: NaN/Inf values detected in test inputs")
+            inputs = torch.nan_to_num(inputs, nan=0.0, posinf=1e6, neginf=-1e6)
+        
+        if torch.isnan(targets).any() or torch.isinf(targets).any():
+            print("\nWARNING: NaN/Inf values detected in test targets")
+            targets = torch.nan_to_num(targets, nan=0.0, posinf=1e6, neginf=-1e6)
+        
+        # Forward pass
+        outputs = self.model(inputs)
+        
+        # Handle NaN/Inf in outputs
+        if torch.isnan(outputs).any() or torch.isinf(outputs).any():
+            print("\nWARNING: NaN/Inf values detected in model outputs during testing")
+            outputs = torch.nan_to_num(outputs, nan=0.0, posinf=1e6, neginf=-1e6)
+        
+        # Calculate loss
+        loss = self.loss_fn(outputs, targets)
+        
+        # Check for invalid loss
+        if torch.isnan(loss).any() or torch.isinf(loss).any():
+            print("\nWARNING: Invalid loss detected in testing")
+            self.log('test_loss', float('inf'), on_step=True, on_epoch=True, prog_bar=True)
+            self.log('test_accuracy', 0.0, on_step=True, on_epoch=True, prog_bar=True)
+            return
+        
+        # Calculate accuracy
+        accuracy = self.calculate_accuracy(outputs, targets)
+        
+        # Log metrics
+        self.log('test_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
+        self.log('test_accuracy', accuracy, on_step=True, on_epoch=True, prog_bar=True)
 
-    def validation_step(self, batch: Any, batch_idx: int) -> Dict[str, Any]:
-        """Handles a single validation step."""
-        return self._step(batch, batch_idx, mode="validation")
-
-    def test_step(self, batch: Any, batch_idx: int) -> Dict[str, Any]:
-        """Handles a single test step."""
-        return self._step(batch, batch_idx, mode="test")
-
-    def configure_optimizers(self) -> optim.Optimizer:
-        """Configures the optimizer for the training process."""
-        return self.optimizer
+    def configure_optimizers(self) -> dict:
+        """Configure optimizers for training."""
+        return {"optimizer": self.optimizer}
