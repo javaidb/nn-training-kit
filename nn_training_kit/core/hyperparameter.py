@@ -99,21 +99,20 @@ def get_hyperparameter(type: str) -> Hyperparameter:
     # Normalize the type to lowercase for comparison
     type = type.lower()
 
-    match type:
-        case "integer":
-            return IntegerHyperparameter
-        case "float":
-            return FloatHyperparameter
-        case "categorical":
-            return CategoricalHyperparameter
-        case _:
-            # Get supported types from Enum
-            _supported_choices = [option.value for option in _HyperparameterTypes]
-            if type not in _supported_choices:
-                raise ValueError(
-                    f"Hyperparameter type '{type}' is not supported. Choose from: {_supported_choices}"
-                )
-            # Raise error if not implemented by the developer
-            raise NotImplementedError(
-                f"Hyperparameter type '{type}' is not implemented by the developer."
+    if type == "integer":
+        return IntegerHyperparameter
+    elif type == "float":
+        return FloatHyperparameter
+    elif type == "categorical":
+        return CategoricalHyperparameter
+    else:
+        # Get supported types from Enum
+        _supported_choices = [option.value for option in _HyperparameterTypes]
+        if type not in _supported_choices:
+            raise ValueError(
+                f"Hyperparameter type '{type}' is not supported. Choose from: {_supported_choices}"
             )
+        # Raise error if not implemented by the developer
+        raise NotImplementedError(
+            f"Hyperparameter type '{type}' is not implemented by the developer."
+        )
