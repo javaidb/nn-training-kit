@@ -225,19 +225,60 @@ class Logger(Callback):
         """PyTorch module callback for training epoch end."""
 
         epoch_num = pl_module.current_epoch
-        training_loss = float(trainer.logged_metrics.get("train_loss_epoch", "nan"))
-        training_accuracy = float(trainer.logged_metrics.get("train_accuracy_epoch", "nan"))
+        training_loss = trainer.logged_metrics.get("train_loss_epoch")
+        training_accuracy = trainer.logged_metrics.get("train_accuracy_epoch")
         
+        # Convert NaN values to None (MLflow will handle None values properly)
+        training_loss = None if training_loss is None or (isinstance(training_loss, float) and math.isnan(training_loss)) else float(training_loss)
+        training_accuracy = None if training_accuracy is None or (isinstance(training_accuracy, float) and math.isnan(training_accuracy)) else float(training_accuracy)
+        
+        # Log epoch-level metrics
+        if training_loss is not None:
+            mlflow.log_metric(
+                key="train_loss_epoch",
+                value=training_loss,
+                step=epoch_num,
+                timestamp=self.get_current_timestamp(),
+            )
+        if training_accuracy is not None:
+            mlflow.log_metric(
+                key="train_accuracy_epoch",
+                value=training_accuracy,
+                step=epoch_num,
+                timestamp=self.get_current_timestamp(),
+            )
         mlflow.log_metric(
-            key="train_loss",
-            value=training_loss,
+            key="epoch",
+            value=epoch_num,
             step=epoch_num,
             timestamp=self.get_current_timestamp(),
         )
+
+    def on_train_batch_end(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule, outputs: dict, batch: tuple, batch_idx: int
+    ) -> None:
+        """PyTorch module callback for training batch end."""
+        # Get global step
+        global_step = trainer.global_step
+        
+        # Get training loss for this step
+        training_loss = trainer.logged_metrics.get("train_loss")
+        
+        # Convert NaN values to None
+        training_loss = None if training_loss is None or (isinstance(training_loss, float) and math.isnan(training_loss)) else float(training_loss)
+        
+        # Log step-level metrics
+        if training_loss is not None:
+            mlflow.log_metric(
+                key="train_loss_step",
+                value=training_loss,
+                step=global_step,
+                timestamp=self.get_current_timestamp(),
+            )
         mlflow.log_metric(
-            key="train_accuracy",
-            value=training_accuracy,
-            step=epoch_num,
+            key="step",
+            value=global_step,
+            step=global_step,
             timestamp=self.get_current_timestamp(),
         )
 
@@ -254,8 +295,12 @@ class Logger(Callback):
         print("Available metrics:", trainer.logged_metrics.keys())
         
         epoch_time = self.get_time_elapsed_for("epoch")
-        validation_loss = float(trainer.logged_metrics.get("val_loss_epoch", "nan"))
-        validation_accuracy = float(trainer.logged_metrics.get("val_accuracy_epoch", "nan"))
+        validation_loss = trainer.logged_metrics.get("val_loss_epoch")
+        validation_accuracy = trainer.logged_metrics.get("val_accuracy_epoch")
+        
+        # Convert NaN values to None
+        validation_loss = None if validation_loss is None or (isinstance(validation_loss, float) and math.isnan(validation_loss)) else float(validation_loss)
+        validation_accuracy = None if validation_accuracy is None or (isinstance(validation_accuracy, float) and math.isnan(validation_accuracy)) else float(validation_accuracy)
         
         print(f"Validation Loss: {validation_loss}")
         print(f"Validation Accuracy: {validation_accuracy}")
@@ -279,23 +324,28 @@ class Logger(Callback):
                         print(f"Trial number: {trial_number}")
                         print(f"Trial number in metrics: {trial_number in self._trial_metrics}")
                         if trial_number in self._trial_metrics:
-                            self._trial_metrics[trial_number]['val_loss'].append(validation_loss)
-                            self._trial_metrics[trial_number]['val_accuracy'].append(validation_accuracy)
+                            if validation_loss is not None:
+                                self._trial_metrics[trial_number]['val_loss'].append(validation_loss)
+                            if validation_accuracy is not None:
+                                self._trial_metrics[trial_number]['val_accuracy'].append(validation_accuracy)
                             self._trial_metrics[trial_number]['epochs'].append(epoch_num)
                             print(f"Stored metrics for trial {trial_number}")
         
-        mlflow.log_metric(
-            key="val_loss",
-            value=validation_loss,
-            step=epoch_num,
-            timestamp=self.get_current_timestamp(),
-        )
-        mlflow.log_metric(
-            key="val_accuracy",
-            value=validation_accuracy,
-            step=epoch_num,
-            timestamp=self.get_current_timestamp(),
-        )
+        # Log epoch-level validation metrics
+        if validation_loss is not None:
+            mlflow.log_metric(
+                key="val_loss_epoch",
+                value=validation_loss,
+                step=epoch_num,
+                timestamp=self.get_current_timestamp(),
+            )
+        if validation_accuracy is not None:
+            mlflow.log_metric(
+                key="val_accuracy_epoch",
+                value=validation_accuracy,
+                step=epoch_num,
+                timestamp=self.get_current_timestamp(),
+            )
         mlflow.log_metric(
             key="epoch_time",
             value=epoch_time,
@@ -303,29 +353,58 @@ class Logger(Callback):
             timestamp=self.get_current_timestamp(),
         )
 
+    def on_validation_batch_end(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule, outputs: dict, batch: tuple, batch_idx: int
+    ) -> None:
+        """PyTorch module callback for validation batch end."""
+        # Get global step
+        global_step = trainer.global_step
+        
+        # Get validation loss for this step
+        validation_loss = trainer.logged_metrics.get("val_loss")
+        
+        # Convert NaN values to None
+        validation_loss = None if validation_loss is None or (isinstance(validation_loss, float) and math.isnan(validation_loss)) else float(validation_loss)
+        
+        # Log step-level validation metrics
+        if validation_loss is not None:
+            mlflow.log_metric(
+                key="val_loss_step",
+                value=validation_loss,
+                step=global_step,
+                timestamp=self.get_current_timestamp(),
+            )
+
     def on_fit_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
         """PyTorch module callback for fit end."""
 
         training_time = self.get_time_elapsed_for("fit")
-        mlflow.log_metric(
-            key="training_time",
-            value=training_time,
-            timestamp=self.get_current_timestamp(),
-        )
+        if not math.isnan(training_time):
+            mlflow.log_metric(
+                key="training_time",
+                value=training_time,
+                timestamp=self.get_current_timestamp(),
+            )
 
     def on_test_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
         """PyTorch module callback for test end."""
 
-        test_loss = float(trainer.logged_metrics.get("test_loss_epoch", "nan"))
-        test_accuracy = float(trainer.logged_metrics.get("test_accuracy_epoch", "nan"))
+        test_loss = trainer.logged_metrics.get("test_loss_epoch")
+        test_accuracy = trainer.logged_metrics.get("test_accuracy_epoch")
         
-        mlflow.log_metric(
-            key="test_loss",
-            value=test_loss,
-            timestamp=self.get_current_timestamp(),
-        )
-        mlflow.log_metric(
-            key="test_accuracy",
-            value=test_accuracy,
-            timestamp=self.get_current_timestamp(),
-        )
+        # Convert NaN values to None
+        test_loss = None if test_loss is None or (isinstance(test_loss, float) and math.isnan(test_loss)) else float(test_loss)
+        test_accuracy = None if test_accuracy is None or (isinstance(test_accuracy, float) and math.isnan(test_accuracy)) else float(test_accuracy)
+        
+        if test_loss is not None:
+            mlflow.log_metric(
+                key="test_loss",
+                value=test_loss,
+                timestamp=self.get_current_timestamp(),
+            )
+        if test_accuracy is not None:
+            mlflow.log_metric(
+                key="test_accuracy",
+                value=test_accuracy,
+                timestamp=self.get_current_timestamp(),
+            )
