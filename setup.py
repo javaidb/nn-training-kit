@@ -6,7 +6,7 @@ setup(
     packages=find_packages(include=["nn_training_kit", "nn_training_kit.*"]),
     install_requires=[
         "torch",
-        "pytorch-lightning",
+        "lightning",
         "pyyaml",
         "pydantic",
     ],
