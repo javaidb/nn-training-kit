@@ -38,19 +38,16 @@ def main():
     
     # Create model
     try:
-        model = MLP(
-            input_dim=data_module.input_dim,
-            hidden_dims=config["model"]["hidden_dims"],
-            output_dim=config["model"]["output_dim"],
-            dropout_rate=config["model"]["dropout_rate"]
-        )
-        print("Model created successfully")
+        # Don't create an instance, just pass the class
+        config["model"]["model"] = MLP
+        # Add input_dim to the model configuration
+        config["model"]["input_dim"] = data_module.input_dim
+        print("Model class set successfully")
     except Exception as e:
-        print(f"Error creating model: {e}")
+        print(f"Error setting model class: {e}")
         return
     
-    # Update config with model and data module
-    config["model"]["model"] = model
+    # Update config with data module
     config["data_module"]["data_module"] = data_module
     
     # Process config
@@ -70,78 +67,6 @@ def main():
     print("  Params: ")
     for key, value in trial.params.items():
         print(f"    {key}: {value}")
-
-    # # Get loss function and optimizer
-    # try:
-    #     # Create MSE loss directly
-    #     loss_function = MSE()
-        
-    #     # Create Adam optimizer directly
-    #     optimizer = optim.Adam(
-    #         model.parameters(),
-    #         lr=training_config.optimizer.lr
-    #     )
-    #     print("Using MSE loss and Adam optimizer")
-    # except Exception as e:
-    #     print(f"Error setting up loss and optimizer: {e}")
-    #     return
-    
-    # # Create training module
-    # training_module = TrainingModule(
-    #     model=model,
-    #     loss_function=loss_function,
-    #     optimizer=optimizer,
-    #     accuracy_tolerance=training_config.trainer.accuracy_tolerance
-    # )
-    
-    # # Create callbacks directly in the code
-    # callbacks = [
-    #     EarlyStopping(
-    #         monitor='validation_loss',
-    #         patience=10,
-    #         mode='min'
-    #     ),
-    #     ModelCheckpoint(
-    #         dirpath='checkpoints',
-    #         filename='best_model',
-    #         monitor='validation_loss',
-    #         mode='min'
-    #     )
-    # ]
-    
-    # # Create logger
-    # try:
-    #     logger = MLFlowLogger(
-    #         experiment_name=training_config.experiment,
-    #         tracking_uri=os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")
-    #     )
-    #     print("Logger created successfully")
-    # except Exception as e:
-    #     print(f"Error setting up logger: {e}")
-    #     return
-    
-    # # Create trainer
-    # trainer = L.Trainer(
-    #     max_epochs=training_config.max_epochs,
-    #     logger=logger,
-    #     callbacks=callbacks,
-    #     enable_progress_bar=True,
-    #     enable_model_summary=True
-    # )
-    
-    # # Train model
-    # try:
-    #     print("Starting training...")
-    #     trainer.fit(training_module, data_module)
-    #     print("Training completed successfully!")
-        
-    #     # Test model
-    #     print("Running test set evaluation...")
-    #     test_results = trainer.test(training_module, data_module)
-    #     print(f"Test results: {test_results}")
-        
-    # except Exception as e:
-    #     print(f"Error during training: {e}")
 
 if __name__ == "__main__":
     main() 
