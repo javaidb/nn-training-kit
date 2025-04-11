@@ -7,15 +7,16 @@ from lightning.pytorch.callbacks import Callback
 from optuna.trial import Trial
 from torch import Tensor
 import mlflow
+import math
 
-from src.hyperparameter import (
+from nn_training_kit.core.hyperparameter import (
     CategoricalHyperparameter,
     FloatHyperparameter,
     IntegerHyperparameter,
 )
-from src.logging import Logger
-from src.training import TrainingModule
-from src.training_config import TrainingConfig
+from nn_training_kit.core.logging import Logger
+from nn_training_kit.core.training import TrainingModule
+from nn_training_kit.core.training_config import TrainingConfig
 
 
 def define_module(trial: Trial, module: Any, module_init_params: dict) -> Any:
@@ -37,7 +38,13 @@ def define_module(trial: Trial, module: Any, module_init_params: dict) -> Any:
     Any
         Instantiated module
     """
-    print(f"\nDefining module: {module.__name__}")
+    # Check if module is a class or an instance
+    if hasattr(module, '__name__'):
+        print(f"\nDefining module: {module.__name__}")
+    else:
+        print(f"\nDefining module: {module.__class__.__name__}")
+        # If module is already an instance, return it
+        return module
 
     def is_hyperparameter(input_type: Any) -> bool:
         """Returns whether input is a hyperparameter."""
@@ -108,6 +115,7 @@ def initialize_trial(
         module=data_module_class,
         module_init_params=data_module_init_params,
     )
+    data_module.setup()  # Set up the data module
     print(f"Data module initialized: {data_module.__class__.__name__}")
 
     # Init optimizer
@@ -127,8 +135,8 @@ def initialize_trial(
     print("\nInitializing training module...")
     training_module = TrainingModule(
         model=model,
-        optimizer=optimizer,
         loss_function=training_config.trainer.loss_function,
+        optimizer=optimizer,
     )
     print("Training module initialized successfully")
 
@@ -137,7 +145,7 @@ def initialize_trial(
     trainer = pl.Trainer(
         max_epochs=training_config.max_epochs,
         max_time={"minutes": training_config.max_time},
-        logger=False,
+        logger=True,
         callbacks=callbacks,
         enable_progress_bar=False,
         enable_model_summary=False,
@@ -178,12 +186,15 @@ def get_objective_function(training_config: TrainingConfig, logger: Logger) -> C
             print("Trial components initialized successfully")
 
             print("\n=== Starting Training ===")
-            trainer.fit(training_module, data_module)
+            trainer.fit(training_module, train_dataloaders=data_module.train_dataloader(), val_dataloaders=data_module.val_dataloader())
             
             # Debug logging for metrics
             print("\n=== Debug: Available Metrics ===")
             for key, value in trainer.logged_metrics.items():
                 print(f"{key}: {value}")
+                # Store metrics in trial's user_attrs
+                if isinstance(value, (int, float)) and not math.isnan(float(value)):
+                    trial.set_user_attr(f"metric:{key}", float(value))
             
             # Get validation accuracy for the epoch
             validation_accuracy = trainer.logged_metrics.get("val_accuracy_epoch")
@@ -221,10 +232,24 @@ def test_best_trial(
         trainer, training_module, data_module = initialize_trial(
             training_config=training_config, trial=best_trial, callbacks=[logger]
         )
-        trainer.fit(training_module, data_module)
+        trainer.fit(training_module, train_dataloaders=data_module.train_dataloader(), val_dataloaders=data_module.val_dataloader())
+        
+        # Log all available metrics for the best trial
+        print("\n=== Best Trial Metrics ===")
+        for key, value in trainer.logged_metrics.items():
+            print(f"{key}: {value}")
+            if isinstance(value, (int, float)) and not math.isnan(float(value)):
+                mlflow.log_metric(key, float(value))
+        
         logger.log_model(model=trainer.model)
 
-        trainer.test(training_module, data_module)
+        test_results = trainer.test(training_module, dataloaders=data_module.test_dataloader())
+        
+        # Log test metrics
+        if test_results and len(test_results) > 0:
+            for key, value in test_results[0].items():
+                if isinstance(value, (int, float)) and not math.isnan(float(value)):
+                    mlflow.log_metric(key, float(value))
 
     return
 
@@ -271,6 +296,14 @@ def run_hyperparameter_tuning(training_config: TrainingConfig) -> None:
         # Log the best trial's parameters and value
         mlflow.log_params(study.best_trial.params)
         mlflow.log_metric("best_trial_value", study.best_value)
+        
+        # Log all metrics from trials 
+        for trial in study.trials:
+            if trial.state.is_finished() and hasattr(trial, 'user_attrs'):
+                for key, value in trial.user_attrs.items():
+                    if key.startswith('metric:'):
+                        metric_name = key.split(':', 1)[1]
+                        mlflow.log_metric(f"trial_{trial.number}_{metric_name}", value)
         
         print("\n=== Testing Best Trial ===")
         test_best_trial(
