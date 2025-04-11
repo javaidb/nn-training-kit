@@ -31,19 +31,17 @@ def get_optimizer(name: str) -> optim.Optimizer:
     NotImplementedError
         If the optimizer is not implemented. This is a development error.
     """
+    name = name.lower()
+    
+    if name == "adam":
+        return optim.Adam
+    elif name == "sgd":
+        return optim.SGD
+    else:
+        _supported_choices = [option.value for option in _OptimizerChoices]
+        if name not in _supported_choices:
+            raise ValueError(
+                f"{name} optimizer not supported. Please select from {_supported_choices}"
+            )
 
-    match name.lower():
-        case "adam":
-            return optim.Adam
-
-        case "sgd":
-            return optim.SGD
-
-        case _:
-            _supported_choices = [option.value for option in _OptimizerChoices]
-            if name not in _supported_choices:
-                raise ValueError(
-                    f"{name} optimizer not supported. Please select from {_supported_choices}"
-                )
-
-            raise NotImplementedError(f"{name} optimizer not implemented by developer.")
+        raise NotImplementedError(f"{name} optimizer not implemented by developer.")
