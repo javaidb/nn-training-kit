@@ -1,5 +1,5 @@
 from copy import copy
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, Dict
 
 import pytorch_lightning as L
 from pydantic import AfterValidator, BaseModel
@@ -17,7 +17,7 @@ class ModelConfig(BaseModel, extra="allow", arbitrary_types_allowed=True):
 
     Parameters:
     -----------
-    model : nn.Module | Any
+    model : Union[nn.Module, Any]
         PyTorch model
     """
 
@@ -30,7 +30,7 @@ class DataModuleConfig(BaseModel, extra="allow", arbitrary_types_allowed=True):
 
     Parameters:
     -----------
-    data_module : L.LightningDataModule | Any
+    data_module : Union[L.LightningDataModule, Any]
         Lightning data module
     """
 
@@ -45,7 +45,7 @@ class TrainerConfig(BaseModel, extra="forbid", arbitrary_types_allowed=True):
     -----------
     loss_function : str
         Name of loss function
-    accuracy_tolerance : float | Hyperparameter, optional
+    accuracy_tolerance : Union[float, Hyperparameter], optional
         The tolerance value for calculating accuracy. Default is 0.01.
     """
 
@@ -61,12 +61,12 @@ class OptimizerConfig(BaseModel, extra="allow"):
     -----------
     optimizer_algorithm : str
         Optimizer algorithm
-    lr : float | Hyperparameter
+    lr : Union[float, Hyperparameter]
         Learning rate
     """
 
     optimizer_algorithm: Annotated[_OptimizerChoices, AfterValidator(get_optimizer)]
-    lr: float | Hyperparameter
+    lr: Union[float, Hyperparameter]
 
 
 class TrainingConfig(BaseModel, extra="forbid", arbitrary_types_allowed=True):
@@ -79,7 +79,7 @@ class TrainingConfig(BaseModel, extra="forbid", arbitrary_types_allowed=True):
         Name of experiment
     num_trials: int
         Number of hyperparameter tuning trials
-    experiment_tags : dict[str, str], Optional
+    experiment_tags : Dict[str, str], Optional
         Tags for experiment, by default {}
     run_name : str, Optional
         Name of run, by default None
@@ -104,7 +104,7 @@ class TrainingConfig(BaseModel, extra="forbid", arbitrary_types_allowed=True):
     experiment: str
     num_trials: int
     max_epochs: Optional[int]
-    experiment_tags: Optional[dict[str, str]] = {}
+    experiment_tags: Optional[Dict[str, str]] = {}
     run_name: Optional[str] = None
     artifact_path: Optional[str] = None
     max_time: Optional[float] = 999_999  # [minutes]
