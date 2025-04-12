@@ -261,11 +261,13 @@ class Logger(Callback):
         # Get global step
         global_step = trainer.global_step
         
-        # Get training loss for this step
-        training_loss = trainer.logged_metrics.get("train_loss")
+        # Get training metrics for this step
+        training_loss = trainer.logged_metrics.get("train_loss_step")
+        training_accuracy = trainer.logged_metrics.get("train_accuracy_step")
         
         # Convert NaN values to None
         training_loss = None if training_loss is None or (isinstance(training_loss, float) and math.isnan(training_loss)) else float(training_loss)
+        training_accuracy = None if training_accuracy is None or (isinstance(training_accuracy, float) and math.isnan(training_accuracy)) else float(training_accuracy)
         
         # Log step-level metrics
         if training_loss is not None:
@@ -275,6 +277,15 @@ class Logger(Callback):
                 step=global_step,
                 timestamp=self.get_current_timestamp(),
             )
+        
+        if training_accuracy is not None:
+            mlflow.log_metric(
+                key="train_accuracy_step",
+                value=training_accuracy,
+                step=global_step,
+                timestamp=self.get_current_timestamp(),
+            )
+            
         mlflow.log_metric(
             key="step",
             value=global_step,
@@ -360,17 +371,27 @@ class Logger(Callback):
         # Get global step
         global_step = trainer.global_step
         
-        # Get validation loss for this step
-        validation_loss = trainer.logged_metrics.get("val_loss")
+        # Get validation metrics for this step
+        validation_loss = trainer.logged_metrics.get("val_loss_step")
+        validation_accuracy = trainer.logged_metrics.get("val_accuracy_step")
         
         # Convert NaN values to None
         validation_loss = None if validation_loss is None or (isinstance(validation_loss, float) and math.isnan(validation_loss)) else float(validation_loss)
+        validation_accuracy = None if validation_accuracy is None or (isinstance(validation_accuracy, float) and math.isnan(validation_accuracy)) else float(validation_accuracy)
         
         # Log step-level validation metrics
         if validation_loss is not None:
             mlflow.log_metric(
                 key="val_loss_step",
                 value=validation_loss,
+                step=global_step,
+                timestamp=self.get_current_timestamp(),
+            )
+            
+        if validation_accuracy is not None:
+            mlflow.log_metric(
+                key="val_accuracy_step",
+                value=validation_accuracy,
                 step=global_step,
                 timestamp=self.get_current_timestamp(),
             )
@@ -396,7 +417,18 @@ class Logger(Callback):
         test_loss = None if test_loss is None or (isinstance(test_loss, float) and math.isnan(test_loss)) else float(test_loss)
         test_accuracy = None if test_accuracy is None or (isinstance(test_accuracy, float) and math.isnan(test_accuracy)) else float(test_accuracy)
         
+        # Print test metrics for debugging
+        print("\n=== Test Metrics ===")
+        print(f"Test Loss: {test_loss}")
+        print(f"Test Accuracy: {test_accuracy}")
+        
         if test_loss is not None:
+            mlflow.log_metric(
+                key="test_loss_epoch",
+                value=test_loss,
+                timestamp=self.get_current_timestamp(),
+            )
+            # Also log with a standard name for consistency
             mlflow.log_metric(
                 key="test_loss",
                 value=test_loss,
@@ -404,7 +436,27 @@ class Logger(Callback):
             )
         if test_accuracy is not None:
             mlflow.log_metric(
+                key="test_accuracy_epoch",
+                value=test_accuracy,
+                timestamp=self.get_current_timestamp(),
+            )
+            # Also log with a standard name for consistency
+            mlflow.log_metric(
                 key="test_accuracy",
                 value=test_accuracy,
                 timestamp=self.get_current_timestamp(),
             )
+        
+        # Log all metrics available at test end
+        print("\n=== All Metrics at Test End ===")
+        for key, value in trainer.logged_metrics.items():
+            print(f"{key}: {value}")
+            # Log any metrics that have _step or _epoch in their name but aren't NaN
+            if "_step" in key or "_epoch" in key:
+                value_float = float(value)
+                if not math.isnan(value_float):
+                    mlflow.log_metric(
+                        key=key,
+                        value=value_float,
+                        timestamp=self.get_current_timestamp(),
+                    )
