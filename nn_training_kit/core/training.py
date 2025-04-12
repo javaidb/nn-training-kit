@@ -127,9 +127,11 @@ class TrainingModule(L.LightningModule):
         # Calculate accuracy
         accuracy = self.calculate_accuracy(outputs, targets)
         
-        # Log metrics
-        self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
-        self.log('train_accuracy', accuracy, on_step=True, on_epoch=True, prog_bar=True)
+        # Log metrics - use both step and epoch level metrics
+        self.log('train_loss_step', loss, on_step=True, on_epoch=False, prog_bar=True)
+        self.log('train_accuracy_step', accuracy, on_step=True, on_epoch=False, prog_bar=True)
+        self.log('train_loss_epoch', loss, on_step=False, on_epoch=True, prog_bar=True)
+        self.log('train_accuracy_epoch', accuracy, on_step=False, on_epoch=True, prog_bar=True)
         
         return loss
 
@@ -160,16 +162,20 @@ class TrainingModule(L.LightningModule):
         # Check for invalid loss
         if torch.isnan(loss).any() or torch.isinf(loss).any():
             print("\nWARNING: Invalid loss detected in validation")
-            self.log('val_loss', float('inf'), on_step=True, on_epoch=True, prog_bar=True)
-            self.log('val_accuracy', 0.0, on_step=True, on_epoch=True, prog_bar=True)
+            self.log('val_loss_step', float('inf'), on_step=True, on_epoch=False, prog_bar=True)
+            self.log('val_accuracy_step', 0.0, on_step=True, on_epoch=False, prog_bar=True)
+            self.log('val_loss_epoch', float('inf'), on_step=False, on_epoch=True, prog_bar=True)
+            self.log('val_accuracy_epoch', 0.0, on_step=False, on_epoch=True, prog_bar=True)
             return
         
         # Calculate accuracy
         accuracy = self.calculate_accuracy(outputs, targets)
         
-        # Log metrics
-        self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
-        self.log('val_accuracy', accuracy, on_step=True, on_epoch=True, prog_bar=True)
+        # Log metrics - use both step and epoch level metrics
+        self.log('val_loss_step', loss, on_step=True, on_epoch=False, prog_bar=True)
+        self.log('val_accuracy_step', accuracy, on_step=True, on_epoch=False, prog_bar=True)
+        self.log('val_loss_epoch', loss, on_step=False, on_epoch=True, prog_bar=True)
+        self.log('val_accuracy_epoch', accuracy, on_step=False, on_epoch=True, prog_bar=True)
 
     def test_step(self, batch: tuple, batch_idx: int) -> None:
         """Perform a single test step."""
@@ -198,16 +204,20 @@ class TrainingModule(L.LightningModule):
         # Check for invalid loss
         if torch.isnan(loss).any() or torch.isinf(loss).any():
             print("\nWARNING: Invalid loss detected in testing")
-            self.log('test_loss', float('inf'), on_step=True, on_epoch=True, prog_bar=True)
-            self.log('test_accuracy', 0.0, on_step=True, on_epoch=True, prog_bar=True)
+            self.log('test_loss_step', float('inf'), on_step=True, on_epoch=False, prog_bar=True)
+            self.log('test_accuracy_step', 0.0, on_step=True, on_epoch=False, prog_bar=True)
+            self.log('test_loss_epoch', float('inf'), on_step=False, on_epoch=True, prog_bar=True)
+            self.log('test_accuracy_epoch', 0.0, on_step=False, on_epoch=True, prog_bar=True)
             return
         
         # Calculate accuracy
         accuracy = self.calculate_accuracy(outputs, targets)
         
-        # Log metrics
-        self.log('test_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
-        self.log('test_accuracy', accuracy, on_step=True, on_epoch=True, prog_bar=True)
+        # Log metrics - use both step and epoch level metrics
+        self.log('test_loss_step', loss, on_step=True, on_epoch=False, prog_bar=True)
+        self.log('test_accuracy_step', accuracy, on_step=True, on_epoch=False, prog_bar=True)
+        self.log('test_loss_epoch', loss, on_step=False, on_epoch=True, prog_bar=True)
+        self.log('test_accuracy_epoch', accuracy, on_step=False, on_epoch=True, prog_bar=True)
 
     def configure_optimizers(self) -> dict:
         """Configure optimizers for training."""
