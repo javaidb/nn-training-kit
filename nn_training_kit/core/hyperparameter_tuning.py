@@ -306,11 +306,114 @@ def run_hyperparameter_tuning(training_config: TrainingConfig) -> None:
                         mlflow.log_metric(f"trial_{trial.number}_{metric_name}", value)
         
         print("\n=== Testing Best Trial ===")
+        best_trial_metrics = {}
+        
+        # Create a function to collect metrics from the best trial
+        def collect_best_trial_metrics(trainer, data_module):
+            nonlocal best_trial_metrics
+            # Collect all metrics for each epoch and step
+            for epoch in range(training_config.max_epochs):
+                # Run training and collect metrics
+                for batch_idx, batch in enumerate(data_module.train_dataloader()):
+                    trainer.train_loop.run_training_batch(batch, batch_idx)
+                    step = epoch * len(data_module.train_dataloader()) + batch_idx
+                    
+                    # Log step metrics to the parent run
+                    train_loss_step = trainer.logged_metrics.get("train_loss_step")
+                    train_accuracy_step = trainer.logged_metrics.get("train_accuracy_step")
+                    val_loss_step = trainer.logged_metrics.get("val_loss_step")
+                    val_accuracy_step = trainer.logged_metrics.get("val_accuracy_step")
+                    
+                    if train_loss_step is not None and not math.isnan(float(train_loss_step)):
+                        mlflow.log_metric("train_loss_step", float(train_loss_step), step=step)
+                    if train_accuracy_step is not None and not math.isnan(float(train_accuracy_step)):
+                        mlflow.log_metric("train_accuracy_step", float(train_accuracy_step), step=step)
+                    if val_loss_step is not None and not math.isnan(float(val_loss_step)):
+                        mlflow.log_metric("val_loss_step", float(val_loss_step), step=step)
+                    if val_accuracy_step is not None and not math.isnan(float(val_accuracy_step)):
+                        mlflow.log_metric("val_accuracy_step", float(val_accuracy_step), step=step)
+                    mlflow.log_metric("step", step, step=step)
+                
+                # Log epoch metrics
+                train_loss_epoch = trainer.logged_metrics.get("train_loss_epoch")
+                train_accuracy_epoch = trainer.logged_metrics.get("train_accuracy_epoch")
+                val_loss_epoch = trainer.logged_metrics.get("val_loss_epoch")
+                val_accuracy_epoch = trainer.logged_metrics.get("val_accuracy_epoch")
+                
+                if train_loss_epoch is not None and not math.isnan(float(train_loss_epoch)):
+                    mlflow.log_metric("train_loss_epoch", float(train_loss_epoch), step=epoch)
+                if train_accuracy_epoch is not None and not math.isnan(float(train_accuracy_epoch)):
+                    mlflow.log_metric("train_accuracy_epoch", float(train_accuracy_epoch), step=epoch)
+                if val_loss_epoch is not None and not math.isnan(float(val_loss_epoch)):
+                    mlflow.log_metric("val_loss_epoch", float(val_loss_epoch), step=epoch)
+                if val_accuracy_epoch is not None and not math.isnan(float(val_accuracy_epoch)):
+                    mlflow.log_metric("val_accuracy_epoch", float(val_accuracy_epoch), step=epoch)
+                mlflow.log_metric("epoch", epoch, step=epoch)
+        
+        # Run the best trial and log metrics directly to the parent run
         test_best_trial(
             training_config=training_config, 
             logger=logger, 
             best_trial=study.best_trial
         )
+        
+        # Copy metrics from the best trial to the parent run
+        metric_client = mlflow.tracking.MlflowClient()
+        best_trial_run_id = None
+        
+        # Find the best_trial run ID
+        runs = metric_client.search_runs(experiment_ids=[logger.experiment_id], filter_string="tags.mlflow.runName = 'best_trial'")
+        if runs:
+            best_trial_run_id = runs[0].info.run_id
+            
+            if best_trial_run_id:
+                # Get all metrics from the best trial run
+                run = metric_client.get_run(best_trial_run_id)
+                
+                # First collect all step metrics to determine max steps
+                step_metrics = {}
+                for key, value in run.data.metrics.items():
+                    if key.endswith('_step'):
+                        if key not in step_metrics:
+                            step_metrics[key] = []
+                        step_metrics[key].append((key, float(value)))
+                
+                # Then log all metrics with proper steps
+                for key, value in run.data.metrics.items():
+                    if '_step' in key:
+                        # For step metrics, we need to log with the step value
+                        step_value = int(key.split('_step_')[1]) if '_step_' in key else 0
+                        mlflow.log_metric(key, float(value), step=step_value)
+                    elif '_epoch' in key:
+                        # For epoch metrics, log with the epoch number
+                        epoch_value = int(key.split('_epoch_')[1]) if '_epoch_' in key else 0
+                        mlflow.log_metric(key, float(value), step=epoch_value)
+                    else:
+                        # For other metrics, just log the value
+                        mlflow.log_metric(key, float(value))
+                    
+                    print(f"Logged metric from best trial: {key} = {value}")
+                
+                # Additionally, fetch history for step-level metrics
+                for metric_key in ["train_loss_step", "train_accuracy_step", "val_loss_step", "val_accuracy_step", 
+                                 "test_loss_step", "test_accuracy_step", "step"]:
+                    try:
+                        # Get metric history
+                        metric_history = metric_client.get_metric_history(best_trial_run_id, metric_key)
+                        
+                        # Log each point in the history
+                        for metric in metric_history:
+                            # Log to parent run with the proper step
+                            mlflow.log_metric(
+                                key=metric_key,
+                                value=metric.value,
+                                step=metric.step,
+                                timestamp=metric.timestamp
+                            )
+                            print(f"Logged history metric: {metric_key} = {metric.value} (step {metric.step})")
+                    except Exception as e:
+                        print(f"Error getting history for {metric_key}: {e}")
+        
         print("Best trial testing completed")
 
     print("\n=== Hyperparameter Tuning Completed ===")
