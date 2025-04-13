@@ -45,30 +45,35 @@ def get_default_config() -> Dict[str, Any]:
         Default configuration dictionary.
     """
     return {
-        "experiment": "default_experiment",
-        "num_trials": 1,
-        "max_epochs": 10,
-        "experiment_tags": {},
+        "experiment": {
+            "experiment_name": "default_experiment",
+            "task": "default_task",
+            "dataset": "default_dataset"
+        },
         "run_name": None,
         "artifact_path": "./artifacts",
         "max_time": 999_999,
         "include_date_in_run_name": False,
         "model": {
-            "model": {
-                "type": "linear",
-                "input_size": 10,
-                "output_size": 1
-            }
+            "type": "linear",
+            "input_size": 10,
+            "output_size": 1
         },
         "data_module": {
-            "data_module": {
-                "batch_size": 32,
-                "num_workers": 0
-            }
+            "batch_size": 32,
+            "num_workers": 0,
+            "train_ratio": 0.7,
+            "val_ratio": 0.15,
+            "test_ratio": 0.15
         },
         "trainer": {
+            "max_epochs": 10,
             "loss_function": "mse",
-            "accuracy_tolerance": 0.01
+            "accuracy_tolerance": 0.01,
+            "hyperparameter_tuning": {
+                "enabled": True,
+                "n_trials": 10
+            }
         },
         "optimizer": {
             "optimizer_algorithm": "adam",
