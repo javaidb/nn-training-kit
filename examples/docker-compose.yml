@@ -8,8 +8,7 @@ services:
     container_name: trainer
     restart: "no"
     volumes:
-      - .:/app/examples
-      - ../nn_training_kit:/app/nn_training_kit
+      - .:/app
     environment:
       - PYTHONPATH=/app
       - MLFLOW_TRACKING_URI=http://mlflow:5000
@@ -23,4 +22,15 @@ services:
               capabilities: [gpu]
     tty: true
     working_dir: /app
-    command: python /app/examples/train_regression.py
+    command: python train_regression.py
+    depends_on:
+      - mlflow
+
+  mlflow:
+    container_name: mlflow-vis
+    image: ghcr.io/mlflow/mlflow:latest
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./mlruns:/mlflow
+    command: mlflow server --host 0.0.0.0 --port 5000 

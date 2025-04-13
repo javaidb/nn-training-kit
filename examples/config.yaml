@@ -1,26 +1,29 @@
-experiment: "regression_example"
-num_trials: 1
-max_epochs: 100
-experiment_tags:
+experiment:
+  experiment_name: "regression_example_v1"
   task: "regression"
   dataset: "sample_data"
 
 model:
-  model: null  # Will be injected by training script
   hidden_dims: [64, 32]
   output_dim: 1
   dropout_rate: 0.1
 
 data_module:
-  data_module: null  # Will be injected by training script
-  csv_path: "examples/temp_data/sample_data.csv"
+  csv_path: "temp_data/sample_data.csv"
   target_column: "target"
   batch_size: 32
   num_workers: 0
+  train_ratio: 0.7
+  val_ratio: 0.15
+  test_ratio: 0.15
 
 trainer:
+  max_epochs: 20
   loss_function: "mse"
   accuracy_tolerance: 0.01
+  hyperparameter_tuning:
+    enabled: true
+    n_trials: 10
   # Removing the callbacks section as it's causing validation errors
   # The callbacks will be created directly in the code
 

@@ -14,7 +14,7 @@ from torch import optim
 def main():
     # Load config
     try:
-        with open("examples/config.yaml", "r") as f:
+        with open("config.yaml", "r") as f:
             config = yaml.safe_load(f)
     except Exception as e:
         print(f"Error loading config: {e}")

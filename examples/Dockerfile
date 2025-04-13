@@ -1,24 +1,14 @@
-FROM python:3.11-slim
+FROM pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
+# Install curl and jq for fetching latest release
+RUN apt-get update && apt-get install -y curl jq && rm -rf /var/lib/apt/lists/*
 
+# Install your package from latest release with all dependencies
+RUN LATEST_RELEASE=$(curl -s https://api.github.com/repos/javaidb/nn-training-kit/releases/latest | jq -r '.assets[0].browser_download_url') && \
+    pip install --no-cache-dir $LATEST_RELEASE
+
+# Set working directory
 WORKDIR /app
 
-# Copy only requirements.txt first to leverage Docker cache
-COPY requirements.txt .
-
-# Install Python dependencies - this layer will be cached unless requirements.txt changes
-RUN pip install -r requirements.txt
-
-COPY . .
-
-# Set environment variables
-ENV PYTHONPATH=/app
-ENV MLFLOW_TRACKING_URI=http://mlflow:5000
-ENV NVIDIA_VISIBLE_DEVICES=all
-
-# Default command
-CMD ["python", "examples/train_regression.py"] 
+# Create directory for MLflow
+RUN mkdir -p /app/mlruns
