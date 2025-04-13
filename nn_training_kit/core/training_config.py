@@ -21,7 +21,7 @@ class ModelConfig(BaseModel, extra="allow", arbitrary_types_allowed=True):
         PyTorch model
     """
 
-    model: Union[nn.Module, Any]
+    model: Optional[Union[nn.Module, Any]] = None
 
 
 class DataModuleConfig(BaseModel, extra="allow", arbitrary_types_allowed=True):
@@ -32,9 +32,34 @@ class DataModuleConfig(BaseModel, extra="allow", arbitrary_types_allowed=True):
     -----------
     data_module : Union[L.LightningDataModule, Any]
         Lightning data module
+    train_ratio : float, optional
+        Ratio of data to use for training. Default is 0.7.
+    val_ratio : float, optional
+        Ratio of data to use for validation. Default is 0.15.
+    test_ratio : float, optional
+        Ratio of data to use for testing. Default is 0.15.
     """
 
-    data_module: Union[L.LightningDataModule, Any]
+    data_module: Optional[Union[L.LightningDataModule, Any]] = None
+    train_ratio: Optional[float] = 0.7
+    val_ratio: Optional[float] = 0.15
+    test_ratio: Optional[float] = 0.15
+
+
+class HyperparameterTuningConfig(BaseModel, extra="allow"):
+    """
+    Hyperparameter tuning configuration base model for data validation.
+
+    Parameters:
+    -----------
+    enabled : bool
+        Whether hyperparameter tuning is enabled
+    n_trials : int
+        Number of trials for hyperparameter tuning
+    """
+
+    enabled: bool = False
+    n_trials: int = 10
 
 
 class TrainerConfig(BaseModel, extra="forbid", arbitrary_types_allowed=True):
@@ -45,12 +70,30 @@ class TrainerConfig(BaseModel, extra="forbid", arbitrary_types_allowed=True):
     -----------
     loss_function : str
         Name of loss function
+    max_epochs : int, optional
+        Maximum number of epochs to train. Default is 10.
+    learning_rate : float, optional
+        Learning rate for training. Default is None.
+    optimizer : str, optional
+        Optimizer to use. Default is None.
     accuracy_tolerance : Union[float, Hyperparameter], optional
         The tolerance value for calculating accuracy. Default is 0.01.
+    num_trials : int, optional
+        Number of hyperparameter tuning trials. Default is 1.
+    num_epochs : int, optional
+        Number of epochs for training. Default is None.
+    hyperparameter_tuning : HyperparameterTuningConfig, optional
+        Settings for hyperparameter tuning. Default is None.
     """
 
     loss_function: Annotated[_LossFunctionChoices, AfterValidator(get_loss_function)]
+    max_epochs: Optional[int] = 10
+    learning_rate: Optional[float] = None
+    optimizer: Optional[str] = None
     accuracy_tolerance: Optional[Union[float, Hyperparameter]] = 0.01
+    num_trials: Optional[int] = 1
+    num_epochs: Optional[int] = None
+    hyperparameter_tuning: Optional[HyperparameterTuningConfig] = None
 
 
 class OptimizerConfig(BaseModel, extra="allow"):
@@ -69,6 +112,25 @@ class OptimizerConfig(BaseModel, extra="allow"):
     lr: Union[float, Hyperparameter]
 
 
+class DataSplitsConfig(BaseModel, extra="allow"):
+    """
+    Data splits configuration for specifying training, validation, and test ratios.
+
+    Parameters:
+    -----------
+    train_ratio : float
+        Ratio of data to use for training.
+    val_ratio : float
+        Ratio of data to use for validation.
+    test_ratio : float
+        Ratio of data to use for testing.
+    """
+    
+    train_ratio: float = 0.7
+    val_ratio: float = 0.15
+    test_ratio: float = 0.15
+
+
 class TrainingConfig(BaseModel, extra="forbid", arbitrary_types_allowed=True):
     """
     Training run configuration base model for data validation.
@@ -77,8 +139,6 @@ class TrainingConfig(BaseModel, extra="forbid", arbitrary_types_allowed=True):
     -----------
     experiment : str
         Name of experiment
-    num_trials: int
-        Number of hyperparameter tuning trials
     experiment_tags : Dict[str, str], Optional
         Tags for experiment, by default {}
     run_name : str, Optional
@@ -86,7 +146,7 @@ class TrainingConfig(BaseModel, extra="forbid", arbitrary_types_allowed=True):
     artifact_path : str, Optional
         Path of artifact, by default None
     max_epochs : int, Optional
-        Max number of epoch per training, by default None
+        DEPRECATED: Max number of epoch per training. Use trainer.max_epochs instead.
     max_time : float, Optional
         Max time for each training in minutes, by default None
     include_date_in_run_name : bool, Optional
@@ -97,23 +157,25 @@ class TrainingConfig(BaseModel, extra="forbid", arbitrary_types_allowed=True):
         Settings for data module
     trainer : TrainerConfig
         Settings for trainer
-    optimizer : OptimizerConfig
+    optimizer : OptimizerConfig, Optional
         Settings for optimizer
+    hyperparameter_tuning : HyperparameterTuningConfig, Optional
+        Settings for hyperparameter tuning
     """
 
     experiment: str
-    num_trials: int
-    max_epochs: Optional[int]
+    max_epochs: Optional[int] = None  # Kept for backward compatibility
     experiment_tags: Optional[Dict[str, str]] = {}
     run_name: Optional[str] = None
     artifact_path: Optional[str] = None
     max_time: Optional[float] = 999_999  # [minutes]
     include_date_in_run_name: Optional[bool] = False
 
-    model: ModelConfig
+    model: Optional[ModelConfig] = None
     data_module: DataModuleConfig
     trainer: TrainerConfig
-    optimizer: OptimizerConfig
+    optimizer: Optional[OptimizerConfig] = None
+    hyperparameter_tuning: Optional[HyperparameterTuningConfig] = None
 
 
 def process_user_config(user_config: dict) -> TrainingConfig:
@@ -142,7 +204,10 @@ def process_user_config(user_config: dict) -> TrainingConfig:
     processed_config = copy(user_config)
 
     for group in config_groups:
-        for arg_name, arg_value in user_config.get(group).items():
+        if group not in processed_config:
+            continue
+            
+        for arg_name, arg_value in user_config.get(group, {}).items():
             if isinstance(arg_value, dict) and is_hyperparameter(arg_value):
                 hyperparam_type = get_hyperparameter(arg_value.get(hyperparam_type_key))
                 arg_value.pop(hyperparam_type_key)
