@@ -77,3 +77,6 @@ test_env/
 
 # Dev
 dev_example/
+
+# Lightning logs
+lightning_logs/
