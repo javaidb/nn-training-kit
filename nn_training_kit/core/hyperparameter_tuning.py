@@ -77,21 +77,21 @@ def initialize_trial(
     training_config: TrainingConfig, trial: Trial, callbacks: list[Callback] = []
 ) -> tuple[pl.Trainer, TrainingModule, L.LightningDataModule]:
     """
-    Initialize hyperparameter tuning trial based on Optuna framework.
+    Initialize model, data module, training module, and trainer for a trial.
 
     Parameters
     ----------
     training_config : TrainingConfig
         User defined training configuration
     trial : Trial
-        Optuna study trial
-    callbacks : list[Callback]
-        List of callbacks for Lightning trainer
+        Optuna trial
+    callbacks : list[Callback], optional
+        List of Lightning callbacks, by default []
 
     Returns
     -------
     tuple[pl.Trainer, TrainingModule, L.LightningDataModule]
-        Initialized modules for fitting
+        Initialized trainer, training module, and data module
     """
     print("\n=== Initializing Trial Components ===")
 
@@ -121,14 +121,46 @@ def initialize_trial(
     # Init optimizer
     print("\nInitializing optimizer...")
     optimizer_config = training_config.optimizer
-    optimizer_class = optimizer_config.optimizer_algorithm
-    optimizer_init_params = dict(optimizer_config)
-    optimizer_init_params.update({"params": model.parameters()})
-    optimizer = define_module(
-        trial=trial,
-        module=optimizer_class,
-        module_init_params=optimizer_init_params,
-    )
+    
+    # If optimizer_config is None, create a default optimizer
+    if optimizer_config is None:
+        from torch import optim
+        print("No optimizer config found, creating default optimizer")
+        
+        # Default to Adam optimizer
+        optimizer_class = optim.Adam
+        lr = 0.001
+        
+        # Try to get parameters from deprecated trainer config (backward compatibility)
+        if hasattr(training_config.trainer, 'optimizer') and training_config.trainer.optimizer:
+            print("WARNING: Using deprecated 'optimizer' from trainer config")
+            optimizer_name = training_config.trainer.optimizer.lower()
+            if optimizer_name == 'adam':
+                optimizer_class = optim.Adam
+            elif optimizer_name == 'sgd':
+                optimizer_class = optim.SGD
+            elif optimizer_name == 'rmsprop':
+                optimizer_class = optim.RMSprop
+            else:
+                print(f"Unknown optimizer: {optimizer_name}, defaulting to Adam")
+        
+        if hasattr(training_config.trainer, 'learning_rate') and training_config.trainer.learning_rate:
+            print("WARNING: Using deprecated 'learning_rate' from trainer config")
+            lr = training_config.trainer.learning_rate
+            
+        optimizer = optimizer_class(model.parameters(), lr=lr)
+        print(f"Created default optimizer: {optimizer_class.__name__} with learning rate: {lr}")
+    else:
+        # Use optimizer config as before
+        optimizer_class = optimizer_config.optimizer_algorithm
+        optimizer_init_params = dict(optimizer_config)
+        optimizer_init_params.update({"params": model.parameters()})
+        optimizer = define_module(
+            trial=trial,
+            module=optimizer_class,
+            module_init_params=optimizer_init_params,
+        )
+    
     print(f"Optimizer initialized: {optimizer.__class__.__name__}")
 
     # Init training module
@@ -143,7 +175,7 @@ def initialize_trial(
     # Init trainer
     print("\nInitializing PyTorch Lightning trainer...")
     trainer = pl.Trainer(
-        max_epochs=training_config.max_epochs,
+        max_epochs=training_config.trainer.max_epochs,
         max_time={"minutes": training_config.max_time},
         logger=True,
         callbacks=callbacks,
@@ -196,18 +228,33 @@ def get_objective_function(training_config: TrainingConfig, logger: Logger) -> C
                 if isinstance(value, (int, float)) and not math.isnan(float(value)):
                     trial.set_user_attr(f"metric:{key}", float(value))
             
-            # Get validation accuracy for the epoch
+            # First try to get validation accuracy
             validation_accuracy = trainer.logged_metrics.get("val_accuracy_epoch")
-            print(f"\nTraining completed. Validation accuracy: {validation_accuracy}")
+            if validation_accuracy is not None and not math.isnan(float(validation_accuracy)):
+                print(f"\nTraining completed. Using validation accuracy: {validation_accuracy}")
+                return validation_accuracy
             
-            if validation_accuracy is None or float(validation_accuracy) == float("nan"):
-                print("WARNING: Validation accuracy is None or NaN. Using validation loss as fallback.")
-                validation_accuracy = trainer.logged_metrics.get("val_loss_epoch")
-                if validation_accuracy is None or float(validation_accuracy) == float("nan"):
-                    print("ERROR: Both validation accuracy and loss are None or NaN. Returning -inf.")
-                    return float("-inf")
+            # Fall back to validation loss (negated so higher is better)
+            validation_loss = trainer.logged_metrics.get("val_loss_epoch")
+            if validation_loss is not None and not math.isnan(float(validation_loss)):
+                print(f"WARNING: Validation accuracy not available. Using negative validation loss: {-validation_loss}")
+                return -float(validation_loss)  # Negate so higher is better
             
-            return validation_accuracy
+            # Fall back to training accuracy
+            train_accuracy = trainer.logged_metrics.get("train_accuracy_epoch")
+            if train_accuracy is not None and not math.isnan(float(train_accuracy)):
+                print(f"WARNING: Validation metrics not available. Using training accuracy: {train_accuracy}")
+                return train_accuracy
+            
+            # Last resort: training loss (negated so higher is better)
+            train_loss = trainer.logged_metrics.get("train_loss_epoch")
+            if train_loss is not None and not math.isnan(float(train_loss)):
+                print(f"WARNING: No validation metrics and no training accuracy. Using negative training loss: {-train_loss}")
+                return -float(train_loss)  # Negate so higher is better
+            
+            # If we still can't find any useful metric, return a small improvement over -inf
+            print("ERROR: No usable metrics found. Returning -1000 as fallback.")
+            return -1000.0
 
     return objective
 
@@ -264,10 +311,34 @@ def run_hyperparameter_tuning(training_config: TrainingConfig) -> None:
     training_config : TrainingConfig
         User defined training configuration
     """
+    # Check if hyperparameter tuning is enabled
+    hyperparameter_tuning_config = None
+    
+    # Check if hyperparameter tuning config exists in trainer
+    if hasattr(training_config.trainer, 'hyperparameter_tuning') and training_config.trainer.hyperparameter_tuning:
+        hyperparameter_tuning_config = training_config.trainer.hyperparameter_tuning
+    # Check if it exists at root level (for backward compatibility)
+    elif hasattr(training_config, 'hyperparameter_tuning') and training_config.hyperparameter_tuning:
+        hyperparameter_tuning_config = training_config.hyperparameter_tuning
+    
+    # If config exists and tuning is disabled, return early
+    if hyperparameter_tuning_config and not hyperparameter_tuning_config.enabled:
+        print("\n=== Hyperparameter Tuning Disabled ===")
+        return
+    
+    # Determine number of trials
+    if hyperparameter_tuning_config and hasattr(hyperparameter_tuning_config, 'n_trials'):
+        n_trials = hyperparameter_tuning_config.n_trials
+        print(f"Using {n_trials} trials from hyperparameter_tuning configuration")
+    else:
+        # Fall back to num_trials in trainer config or default to 1
+        n_trials = getattr(training_config.trainer, 'num_trials', 1)
+        print(f"Using {n_trials} trials from trainer.num_trials (fallback)")
+    
     print("\n=== Starting Hyperparameter Tuning ===")
-    print(f"Experiment: {training_config.experiment}")
-    print(f"Number of trials: {training_config.num_trials}")
-    print(f"Max epochs per trial: {training_config.max_epochs}")
+    print(f"Experiment name: {training_config.experiment}")
+    print(f"Number of trials: {n_trials}")
+    print(f"Max epochs per trial: {training_config.trainer.max_epochs}")
     print(f"Max time per trial: {training_config.max_time} minutes")
     print(f"Include date in run name: {training_config.include_date_in_run_name}")
 
@@ -290,7 +361,7 @@ def run_hyperparameter_tuning(training_config: TrainingConfig) -> None:
         print("Created Optuna study with 'maximize' direction")
         
         print("\n=== Running Optimization ===")
-        study.optimize(objective, n_trials=training_config.num_trials)
+        study.optimize(objective, n_trials=n_trials)
         print(f"Optimization completed. Best trial value: {study.best_value}")
         
         # Log the best trial's parameters and value
@@ -312,7 +383,7 @@ def run_hyperparameter_tuning(training_config: TrainingConfig) -> None:
         def collect_best_trial_metrics(trainer, data_module):
             nonlocal best_trial_metrics
             # Collect all metrics for each epoch and step
-            for epoch in range(training_config.max_epochs):
+            for epoch in range(training_config.trainer.max_epochs):
                 # Run training and collect metrics
                 for batch_idx, batch in enumerate(data_module.train_dataloader()):
                     trainer.train_loop.run_training_batch(batch, batch_idx)
@@ -398,6 +469,7 @@ def run_hyperparameter_tuning(training_config: TrainingConfig) -> None:
                 for metric_key in ["train_loss_step", "train_accuracy_step", "val_loss_step", "val_accuracy_step", 
                                  "test_loss_step", "test_accuracy_step", "step"]:
                     try:
+                        print(f"Logging history metric: {metric_key}")
                         # Get metric history
                         metric_history = metric_client.get_metric_history(best_trial_run_id, metric_key)
                         
@@ -410,7 +482,7 @@ def run_hyperparameter_tuning(training_config: TrainingConfig) -> None:
                                 step=metric.step,
                                 timestamp=metric.timestamp
                             )
-                            print(f"Logged history metric: {metric_key} = {metric.value} (step {metric.step})")
+                        print(f"Reference log (step {metric.step}): {metric_key} = {metric.value}")
                     except Exception as e:
                         print(f"Error getting history for {metric_key}: {e}")
         
