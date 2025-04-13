@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.0.1] - 2024-04-12
+
+### Added
+- Support for dynamic dependencies from requirements.txt
+- Enhanced hyperparameter tuning configuration with dedicated section
+
+### Changed
+- Updated dependency management to use a single source of truth
+- Removed redundant num_trials parameter in favor of hyperparameter_tuning.n_trials
+- Improved configuration structure for data splits
+
+### Fixed
+- Fixed dependency handling in packaging configurations
+
 ## [1.0.0] - 2024-04-05
 
 ### Added
