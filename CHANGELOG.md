@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.2] - 2024-04-19
+
+### Added
+- Added CNN model for sequence and image data processing
+- Added RNN model with support for both LSTM and GRU architectures
+- Added configuration support for RNN type selection (LSTM/GRU)
+
+### Changed
+- Updated model selection system to include new CNN and RNN models
+- Enhanced model configuration documentation with examples for new models
+
 ## [1.0.1] - 2024-04-12
 
 ### Added

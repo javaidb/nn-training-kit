@@ -4,13 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nn_training_kit"
-version = "1.0.1"
+description = "A toolkit for training neural networks with PyTorch Lightning"
 authors = [
   { name="Javaid Baksh", email="javaidbaksh@gmail.com" },
 ]
-description = "A toolkit for neural network training with PyTorch Lightning"
+version = "1.0.2"
 readme = "README.md"
 requires-python = ">=3.8"
+license = {file = "LICENSE"}
 dynamic = ["dependencies"]
 
 [project.optional-dependencies]
@@ -37,4 +38,7 @@ disallow_untyped_defs = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-addopts = "--cov=nn_training_kit --cov-report=term-missing" 
+addopts = "--cov=nn_training_kit --cov-report=term-missing"
+
+[tool.setuptools]
+packages = ["nn_training_kit", "nn_training_kit.core"] 
