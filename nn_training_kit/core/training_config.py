@@ -9,6 +9,7 @@ from typing_extensions import Annotated
 from nn_training_kit.core.hyperparameter import Hyperparameter, get_hyperparameter
 from nn_training_kit.core.loss import _LossFunctionChoices, get_loss_function
 from nn_training_kit.core.optimizer import _OptimizerChoices, get_optimizer
+from nn_training_kit.core.models import get_model_by_name
 
 
 class ModelConfig(BaseModel, extra="allow", arbitrary_types_allowed=True):
@@ -17,11 +18,15 @@ class ModelConfig(BaseModel, extra="allow", arbitrary_types_allowed=True):
 
     Parameters:
     -----------
-    model : Union[nn.Module, Any]
-        PyTorch model
+    model_name : Union[str, nn.Module, Any], optional
+        Either a string specifying model name or the model class itself.
+        If a string is provided, it will be resolved to a model class from models.py.
+    model : Union[nn.Module, Any], optional
+        DEPRECATED: Use model_name instead. Will be removed in a future version.
     """
 
-    model: Optional[Union[nn.Module, Any]] = None
+    model_name: Optional[Union[str, nn.Module, Any]] = None
+    model: Optional[Union[nn.Module, Any]] = None  # For backward compatibility
 
 
 class DataModuleConfig(BaseModel, extra="allow", arbitrary_types_allowed=True):
@@ -199,9 +204,43 @@ def process_user_config(user_config: dict) -> TrainingConfig:
         return variable_input.get(hyperparam_type_key)
 
     hyperparam_type_key = "hyperparameter_type"
-    config_groups = ["model", "optimizer", "trainer", "data_module"]
+    config_groups = ["model", "models", "optimizer", "trainer", "data_module", "data_splits", "hyperparameter_tuning"]
 
     processed_config = copy(user_config)
+
+    # Handle model_name and string-based model specification
+    if "model" in processed_config:
+        # If model_name exists in the config, use it
+        if "model_name" in processed_config["model"]:
+            model_name = processed_config["model"]["model_name"]
+            if isinstance(model_name, str):
+                # Resolve string model name to actual model class
+                try:
+                    processed_config["model"]["model"] = get_model_by_name(model_name)
+                    print(f"Resolved model name '{model_name}' to model class")
+                except ValueError as e:
+                    print(f"WARNING: {e}")
+            else:
+                # If model_name is already a class, use it directly
+                processed_config["model"]["model"] = model_name
+                print("Using provided model class")
+        # For backward compatibility: if model exists but not model_name
+        elif "model" in processed_config["model"]:
+            # Copy model to model_name for forward compatibility
+            model = processed_config["model"]["model"]
+            if isinstance(model, str):
+                # If the existing model field is a string, treat it as a model name
+                try:
+                    resolved_model = get_model_by_name(model)
+                    processed_config["model"]["model"] = resolved_model
+                    processed_config["model"]["model_name"] = model
+                    print(f"Resolved model name '{model}' to model class (backward compatibility)")
+                except ValueError as e:
+                    print(f"WARNING: {e}")
+            else:
+                # If model is already a class, keep it and set model_name to it as well
+                processed_config["model"]["model_name"] = model
+                print("Using existing model class (backward compatibility)")
 
     for group in config_groups:
         if group not in processed_config:
