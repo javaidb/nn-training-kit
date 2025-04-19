@@ -4,6 +4,7 @@ experiment:
   dataset: "sample_data"
 
 model:
+  model_name: "mlp"  # Can be a string like "mlp" or a class reference
   hidden_dims: [64, 32]
   output_dim: 1
   dropout_rate: 0.1
