@@ -98,8 +98,14 @@ def initialize_trial(
     # Init model
     print("Initializing model...")
     model_config = training_config.model
+    # Training config should have already resolved model_name to model by now
     model_class = model_config.model
+    if model_class is None:
+        raise ValueError("Model class not found. Make sure model_name is properly configured and resolved.")
     model_init_params = dict(model_config)
+    # Remove model_name from params to avoid confusion
+    if "model_name" in model_init_params:
+        del model_init_params["model_name"]
     model = define_module(
         trial=trial, module=model_class, module_init_params=model_init_params
     )
